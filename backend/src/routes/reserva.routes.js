@@ -1,0 +1,10 @@
+import { Router } from 'express';
+import * as c from '../controllers/reserva.controller.js';
+import { admin } from '../config/admin.js';
+const router=Router();
+router.post('/',c.crear);
+router.post('/pago-simulado',c.crearConPagoSimulado);
+router.get('/',admin,c.listar);
+router.patch('/:id/cancelar',admin,c.cancelar);
+router.post('/:id/pago-manual',admin,c.pagar);
+export default router;
