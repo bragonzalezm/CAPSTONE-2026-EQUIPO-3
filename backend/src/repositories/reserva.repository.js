@@ -1,65 +1,86 @@
-import pool from '../config/db.js';
-import { horarios } from './especialista.repository.js';
-import { fallo } from '../services/validacion.js';
-export async function crear(datos,operacion=null) {
- const db=await pool.connect();
- try {
-  await db.query('BEGIN');
-  if (operacion) {
-   await db.query('SELECT pg_advisory_xact_lock(7402, hashtext($1))',[operacion]);
-   const previo=await db.query(`SELECT r.id,r.fecha_inicio,r.fecha_fin,r.estado,p.monto,p.estado AS estado_pago
-    FROM "PAGO" p JOIN "RESERVA" r ON r.id=p.id_reserva WHERE p.orden_compra=$1`,['DEMO-'+operacion]);
-   if (previo.rowCount) {await db.query('COMMIT');return previo.rows[0];}
-  }
-  // Serializa las reservas del mismo especialista para evitar doble asignación.
-  await db.query('SELECT pg_advisory_xact_lock(7401, $1::int)',[datos.id_especialista]);
-  const relacion=await db.query('SELECT 1 FROM "ESPECIALISTA_ESPECIALIDAD" WHERE id_especialista=$1 AND id_especialidad=$2',[datos.id_especialista,datos.id_especialidad]);
-  if (!relacion.rowCount) fallo('El especialista no realiza esta especialidad.');
-  const libres=await horarios(datos.id_especialista,datos.fecha_inicio.slice(0,10),db);
-  if (!libres.some(h=>h.fecha_inicio===datos.fecha_inicio)) fallo('El horario ya no está disponible. Selecciona otro.',409);
-  const valores=[datos.run,datos.nombre,datos.apellido,datos.num_cel,datos.correo_electronico,datos.id_especialista,datos.id_especialidad,datos.fecha_inicio,datos.indicaciones_especiales];
-  const resultado=await db.query(`INSERT INTO "RESERVA"
-  (run,nombre,apellido,num_cel,correo_electronico,id_especialista,id_especialidad,fecha_inicio,fecha_fin,indicaciones_especiales,estado)
-  VALUES ($1,$2,$3,$4,$5,$6,$7,$8::timestamp,$8::timestamp+interval '60 minutes',$9,'confirmada')
-  RETURNING id,fecha_inicio,fecha_fin,estado`,valores);
-  if (operacion) {
-   await db.query(`INSERT INTO "PAGO" (id_reserva,monto,estado,orden_compra,fecha_pago)
-    VALUES ($1,5000,'simulado',$2,CURRENT_TIMESTAMP AT TIME ZONE 'America/Santiago')`,[resultado.rows[0].id,'DEMO-'+operacion]);
-   resultado.rows[0].monto=5000;resultado.rows[0].estado_pago='simulado';
-  }
-  await db.query('COMMIT'); return resultado.rows[0];
- } catch(error) { await db.query('ROLLBACK'); throw error; }
- finally { db.release(); }
+'use strict';
+
+function crearReservaRepository(dependencias) {
+  const { bloquearEspecialista, bloquearReserva, errorRepositorio, insertarReserva, paginacion, seleccionReserva, uno, varios } = dependencias;
+  const reservas = {
+    bloquearEspecialista,
+    bloquearPorId: bloquearReserva,
+    buscarPorId(id) { return uno(`${seleccionReserva} WHERE r.id_reserva=$1`, [id]); },
+    listarAgenda({ desde, hasta, rutEspecialista = null, idEstado = null }) {
+      // Intervalo de consulta [desde,hasta), ambos timestamps con zona.
+      return varios(`${seleccionReserva} WHERE r.fecha_hora_inicio<$2 AND r.fecha_hora_fin>$1
+        AND ($3::varchar IS NULL OR r.rut_especialista=$3)
+        AND ($4::smallint IS NULL OR r.id_estado=$4) ORDER BY r.fecha_hora_inicio,r.id_reserva`,
+      [desde, hasta, rutEspecialista, idEstado]);
+    },
+    listarPorCliente(rut, { limite = 50, desplazamiento = 0 } = {}) {
+      const [l, d] = paginacion(limite, desplazamiento);
+      return varios(`${seleccionReserva} WHERE r.rut_cliente=$1
+        AND upper(er.nombre)<>'PENDIENTE' ORDER BY r.fecha_hora_inicio DESC,r.id_reserva DESC
+        LIMIT $2 OFFSET $3`, [rut, l, d]);
+    },
+    buscarSolapamientos({ rutEspecialista, inicio, fin, excluirId = null }) {
+      return varios(`SELECT r.* FROM reserva r JOIN estado_reserva er USING(id_estado)
+        WHERE r.rut_especialista=$1 AND r.fecha_hora_inicio<$3 AND r.fecha_hora_fin>$2
+          AND ($4::bigint IS NULL OR r.id_reserva<>$4)
+          AND (upper(er.nombre) IN ('CONFIRMADA','REALIZADA')
+            OR (upper(er.nombre)='PENDIENTE' AND (r.retencion_hasta IS NULL
+              OR r.retencion_hasta>now() OR EXISTS(SELECT 1 FROM pago p WHERE p.id_reserva=r.id_reserva))))
+        ORDER BY r.fecha_hora_inicio`, [rutEspecialista, inicio, fin, excluirId]);
+    },
+    crearPendienteWeb(datos) {
+      if (!datos.retencion_hasta) throw new Error('Una retención web requiere retencion_hasta.');
+      return insertarReserva(datos, 'WEB', 'PENDIENTE');
+    },
+    crearManual(datos) {
+      return insertarReserva({ ...datos, retencion_hasta: null }, 'PERSONAL', 'CONFIRMADA');
+    },
+    async confirmarWebPagada(id) {
+      const r = await bloquearReserva(id);
+      if (!r) return null;
+      const cruces = await reservas.buscarSolapamientos({ rutEspecialista: r.rut_especialista,
+        inicio: r.fecha_hora_inicio, fin: r.fecha_hora_fin, excluirId: id });
+      if (cruces.length) throw errorRepositorio('HORARIO_OCUPADO', 'No se puede confirmar: intervalo ocupado.');
+      return uno(`UPDATE reserva r SET id_estado=destino.id_estado,retencion_hasta=NULL
+        FROM estado_reserva destino,estado_reserva actual,origen_reserva ori
+        WHERE r.id_reserva=$1 AND actual.id_estado=r.id_estado AND ori.id_origen=r.id_origen
+          AND upper(destino.nombre)='CONFIRMADA' AND upper(ori.nombre)='WEB'
+          AND upper(actual.nombre) IN ('PENDIENTE','CONFIRMADA')
+          AND EXISTS(SELECT 1 FROM pago p JOIN medio_pago m USING(id_medio)
+            WHERE p.id_reserva=r.id_reserva AND upper(m.nombre)='WEBPAY') RETURNING r.*`, [id]);
+    },
+    async cancelar(id) {
+      if (!await bloquearReserva(id)) return null;
+      // Un segundo intento de cancelación devuelve la fila ya cancelada.
+      // No borra el pago ni cambia las fechas; no permite cancelar atenciones.
+      return uno(`UPDATE reserva r SET id_estado=destino.id_estado,retencion_hasta=NULL
+        FROM estado_reserva actual,estado_reserva destino
+        WHERE r.id_reserva=$1 AND r.id_estado=actual.id_estado
+          AND upper(destino.nombre)='CANCELADA'
+          AND (upper(actual.nombre)='CANCELADA' OR
+            (upper(actual.nombre)='CONFIRMADA' AND r.fecha_hora_inicio>now()))
+          AND NOT EXISTS(SELECT 1 FROM atencion a WHERE a.id_reserva=r.id_reserva) RETURNING r.*`, [id]);
+    },
+    listarPendientesVencidas({ limite = 50 } = {}) {
+      const [l] = paginacion(limite);
+      return varios(`SELECT r.* FROM reserva r JOIN estado_reserva e USING(id_estado)
+        WHERE upper(e.nombre)='PENDIENTE' AND r.retencion_hasta<=now()
+          AND NOT EXISTS(SELECT 1 FROM pago p WHERE p.id_reserva=r.id_reserva)
+        ORDER BY r.retencion_hasta,r.id_reserva LIMIT $1`, [l]);
+    },
+    async eliminarPendienteSinPago(id) {
+      if (!await bloquearReserva(id)) return null;
+      return uno(`DELETE FROM reserva r USING estado_reserva e
+        WHERE r.id_reserva=$1 AND r.id_estado=e.id_estado AND upper(e.nombre)='PENDIENTE'
+          AND NOT EXISTS(SELECT 1 FROM pago p WHERE p.id_reserva=r.id_reserva)
+          AND NOT EXISTS(SELECT 1 FROM atencion a WHERE a.id_reserva=r.id_reserva)
+        RETURNING r.id_reserva`, [id]);
+    },
+    async actualizarEventoGoogle(id, idEvento) {
+      if (!await bloquearReserva(id)) return null;
+      return uno('UPDATE reserva SET id_evento_google=$2 WHERE id_reserva=$1 RETURNING *', [id, idEvento]);
+    }
+  };
+  return reservas;
 }
-export async function listar(fecha) {
- return (await pool.query(`SELECT r.*,s.nombre AS especialidad,e.nombres||' '||COALESCE(e.ap_paterno,'') AS especialista,
- EXISTS(SELECT 1 FROM "PAGO" p WHERE p.id_reserva=r.id AND p.estado='pagado') AS pagada,
- EXISTS(SELECT 1 FROM "PAGO" p WHERE p.id_reserva=r.id AND p.estado='simulado') AS pago_simulado
- FROM "RESERVA" r JOIN "ESPECIALIDAD" s ON s.id=r.id_especialidad JOIN "ESPECIALISTA" e ON e.id=r.id_especialista
- WHERE ($1::date IS NULL OR r.fecha_inicio::date=$1::date) ORDER BY r.fecha_inicio DESC LIMIT 500`,[fecha ?? null])).rows;
-}
-export async function cancelar(id) {
- const db=await pool.connect();
- try {
-  await db.query('BEGIN');
-  const r=(await db.query('SELECT * FROM "RESERVA" WHERE id=$1 FOR UPDATE',[id])).rows[0];
-  if (!r) fallo('Reserva no encontrada.',404);
-  const pago=await db.query(`SELECT 1 FROM "PAGO" WHERE id_reserva=$1 AND estado='pagado'`,[id]);
-  if (pago.rowCount) fallo('Esta reserva tiene un pago registrado. La demo no gestiona devoluciones.',409);
-  const resultado=await db.query(`UPDATE "RESERVA" SET estado='cancelada' WHERE id=$1 RETURNING id,estado`,[id]);
-  await db.query('COMMIT'); return resultado.rows[0];
- } catch(error) { await db.query('ROLLBACK'); throw error; } finally { db.release(); }
-}
-export async function pagar(id,monto) {
- const db=await pool.connect();
- try {
-  await db.query('BEGIN');
-  const r=(await db.query('SELECT * FROM "RESERVA" WHERE id=$1 FOR UPDATE',[id])).rows[0];
-  if (!r) fallo('Reserva no encontrada.',404);
-  if (r.estado==='cancelada') fallo('La reserva está cancelada.',409);
-  if ((await db.query(`SELECT 1 FROM "PAGO" WHERE id_reserva=$1 AND estado='pagado'`,[id])).rowCount) fallo('El pago ya está registrado.',409);
-  const pago=await db.query(`INSERT INTO "PAGO" (id_reserva,monto,estado,orden_compra,fecha_pago)
-  VALUES ($1::int,$2,'pagado','MANUAL-'||($1::int)::text,CURRENT_TIMESTAMP AT TIME ZONE 'America/Santiago') RETURNING *`,[id,monto]);
-  await db.query('COMMIT'); return pago.rows[0];
- } catch(error) { await db.query('ROLLBACK'); throw error; } finally { db.release(); }
-}
+module.exports = crearReservaRepository;
