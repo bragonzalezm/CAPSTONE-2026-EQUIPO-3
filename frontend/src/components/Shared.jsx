@@ -1,0 +1,6 @@
+export function Brand({ footer=false, onClick }) {
+  return <a className={`brand ${footer?'footer-brand':''}`} href="#inicio" onClick={onClick} aria-label="Nicolett, inicio"><span className="monogram">N</span><span className="brand-name">Nicolett<small>STUDIO FANTASY</small></span></a>;
+}
+export function Alert({children, error=false}) { return children ? <div className={`aviso ${error?'error':''}`} role={error?'alert':'status'}>{children}</div> : null; }
+export function Portrait(){return <div className="portrait"><span className="silhouette" aria-hidden="true"/><small>Fotografía sin especificar</small></div>;}
+export function Footer({onHome}){return <footer id="contacto"><div className="footer-inner"><Brand footer onClick={onHome}/><div><span>CONVERSEMOS</span><a href="https://wa.me/56940322551" target="_blank" rel="noopener noreferrer">+56 9 4032 2551</a><a href="https://www.instagram.com/nicolettstudiofantasy/" target="_blank" rel="noopener noreferrer">@nicolettstudiofantasy</a></div><div><span>ENCUÉNTRANOS</span><p>Avenida Bernardo O’Higgins 979<br/>Buin, Chile</p></div><p className="footer-phrase">Tu belleza,<br/><em>en un solo lugar.</em></p></div><div className="footer-bottom">Nicolett Studio Fantasy <span>Hecho para cuidarte.</span></div></footer>;}

@@ -1,0 +1,8 @@
+'use strict';
+const test=require('node:test');const assert=require('node:assert/strict');
+const crear=require('../src/repositories/nicolett.repository');
+function fixture(){const log=[];const client={query:async(sql)=>{log.push(['client',sql]);return {rows:[{rut:'12345678-5'}]};},release:()=>log.push(['release'])};const pool={query:async(sql)=>{log.push(['pool',sql]);return {rows:[]};},connect:async()=>client};return {repo:crear(pool),log,pool};}
+test('usuario y catálogo comparten client y la transacción expira',async()=>{const {repo,log}=fixture();let saved;await repo.conTransaccion(async tx=>{saved=tx;await tx.usuarios.buscarPorRut('12345678-5');await tx.catalogos.listar('rol');});assert.equal(log.filter(x=>x[0]==='pool').length,0);assert.match(log[0][1],/^BEGIN/);assert.equal(log.at(-2)[1],'COMMIT');assert.equal(log.at(-1)[0],'release');await assert.rejects(saved.usuarios.buscarPorRut('12345678-5'),/terminó/);});
+test('fallo revierte y libera conexión',async()=>{const {repo,log}=fixture();const error=new Error('fallo');await assert.rejects(repo.conTransaccion(async tx=>{await tx.usuarios.buscarPorRut('x');throw error;}),e=>e===error);assert.equal(log.at(-2)[1],'ROLLBACK');assert.equal(log.at(-1)[0],'release');});
+test('operaciones protegidas exigen transacción',()=>{const {repo}=fixture();assert.throws(()=>repo.usuarios.habilitarCuenta('x','hash'),/conTransaccion/);});
+test('carga servicios, controladores y diez routers',()=>{const {pool}=fixture();const s=require('../src/services/nicolett.service')(pool);const c=require('../src/controllers/nicolett.controller')(s);const r=require('../src/routes/nicolett.routes')(c);assert.equal(r.stack.length,11);assert.equal(typeof s.reservas.crearManual,'function');});
