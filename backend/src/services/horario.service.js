@@ -1,5 +1,7 @@
 'use strict';
 
+const crearGoogleCalendarService = require('./google-calendar.service.js');
+
 function crearHorarioService(dependencias) {
   const { ahora, texto, fechaChile, hora, agendaPropia, comprobarReservasConservadas, datosHorario, especialistaHabilitada, fallar, fechaLocalValida, id, igual, repository, requerido, rutValido, validarHorarioSinCruces } = dependencias;
   const predeterminados = [['10:00:00','12:00:00'],['12:01:00','14:00:00'],['15:00:00','17:00:00'],['17:01:00','19:00:00']];
@@ -44,7 +46,13 @@ function crearHorarioService(dependencias) {
     },
     async desbloquearFecha(ctx,rut,idBloqueo) {
       rut=rutValido(rut);const bid=id(idBloqueo);
-      return repository.conTransaccion(async tx=>{await tx.reservas.bloquearEspecialista(rut);await agendaPropia(ctx,rut,tx);return requerido(await tx.horarios.eliminarBloqueo(rut,bid));});
+      return repository.conTransaccion(async tx=>{
+        await tx.reservas.bloquearEspecialista(rut);await agendaPropia(ctx,rut,tx);
+        const futuros=await tx.horarios.listarBloqueos(rut,fechaChile(ahora()),'9999-12-31');
+        const bloqueo=futuros.find(x=>igual(x.id_bloqueo,bid));
+        const eliminado=requerido(await tx.horarios.eliminarBloqueo(rut,bid));
+        return {...eliminado,fecha:bloqueo?.fecha};
+      });
     },
     async listarGestion(ctx, rut) {
       const normalizado = rutValido(rut); await agendaPropia(ctx, normalizado);
@@ -89,6 +97,36 @@ function crearHorarioService(dependencias) {
       });
     }
   };
+  // Ejecutar Google solo despues de confirmar el cambio en PostgreSQL.
+  const googleCalendar = crearGoogleCalendarService(repository);
+  const especialistaDe = {
+    aplicarPredeterminados: args => args[1].rut_especialista,
+    bloquearFecha: args => args[1].rut_especialista,
+    desbloquearFecha: args => args[1],
+    crear: args => args[1].rut_especialista,
+    actualizar: args => args[1],
+    eliminar: args => args[1]
+  };
+  for (const [nombre, obtenerRut] of Object.entries(especialistaDe)) {
+    const original = horarios[nombre];
+    horarios[nombre] = async (...args) => {
+      const resultado = await original(...args);
+      const rut = rutValido(obtenerRut(args));
+      try {
+        // La franja modificada puede estar fuera del horizonte general.
+        const fecha = ['bloquearFecha', 'desbloquearFecha'].includes(nombre)
+          ? (nombre === 'bloquearFecha' ? args[1].fecha : resultado.fecha) : null;
+        const estado = await googleCalendar.sincronizarDisponibilidad(rut);
+        if (fecha && fecha > fechaChile(ahora())) {
+          await googleCalendar.sincronizarDisponibilidad(rut, fecha, fecha);
+        }
+        console.log(`Google Calendar: disponibilidad ${rut} — ${estado}`);
+      } catch (error) {
+        console.error(`Google Calendar pendiente: disponibilidad ${rut}:`, error.message);
+      }
+      return resultado;
+    };
+  }
   return horarios;
 }
 module.exports = crearHorarioService;

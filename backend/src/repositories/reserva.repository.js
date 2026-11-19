@@ -5,6 +5,13 @@ function crearReservaRepository(dependencias) {
   const reservas = {
     bloquearEspecialista,
     bloquearPorId: bloquearReserva,
+    buscarCalendarioGoogle(rut) {
+      return uno(`
+        SELECT id_calendario_google
+        FROM especialista_calendario
+        WHERE rut_especialista = $1
+      `, [rut]);
+    },
     buscarPorId(id) { return uno(`${seleccionReserva} WHERE r.id_reserva=$1`, [id]); },
     listarAgenda({ desde, hasta, rutEspecialista = null, idEstado = null }) {
       // Intervalo de consulta [desde,hasta), ambos timestamps con zona.

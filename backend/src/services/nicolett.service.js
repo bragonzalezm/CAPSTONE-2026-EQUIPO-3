@@ -16,6 +16,7 @@ const { promisify } = require('node:util');
 const crearNicolettRepository = require('../repositories/nicolett.repository');
 const scryptAsync = promisify(scrypt);
 
+const crearGoogleCalendarService = require('./google-calendar.service.js');
 
 
 // ============================================================================
@@ -332,7 +333,35 @@ function crearNicolettService(pool, opciones = {}) {
   // 11. ATENCIONES E HISTORIAL -> atencion.service.js
   // ========================================================================
   const atenciones = crearAtencionService({ agendaPropia, ahora, fallar, id, igual, objeto, pagina, personal, repository, requerido, rutValido, texto });
+  const googleCalendar = crearGoogleCalendarService(repository);
 
+  for (const nombre of ['crearManual', 'cancelar']) {
+    const original = reservas[nombre];
+
+    reservas[nombre] = async (...args) => {
+      const resultado = await original(...args);
+
+      try {
+        const estadoGoogle = await googleCalendar.sincronizar(
+          resultado.id_reserva
+        );
+
+        console.log(
+          `Google Calendar: reserva #${resultado.id_reserva} — ${estadoGoogle}`
+        );
+
+        return { ...resultado, google_calendar: estadoGoogle };
+      } catch (error) {
+        console.error(
+          `Google Calendar pendiente para reserva #${resultado.id_reserva}:`,
+          error.message
+        );
+
+        return { ...resultado, google_calendar: 'PENDIENTE' };
+      }
+    };
+  }
+  
   // ========================================================================
   // 12. TRADUCCIÓN DE ERRORES Y EXPORTACIÓN -> service.utils.js / index.js
   // ========================================================================

@@ -7,6 +7,7 @@ const express = require('express');
 const session = require('express-session');
 
 const pool = require('./config/db');
+const crearWebpayPrueba = require('./services/webpay-prueba.service');
 const crearNicolettService = require('./services/nicolett.service');
 const crearNicolettController = require('./controllers/nicolett.controller');
 const crearNicolettRoutes = require('./routes/nicolett.routes');
@@ -38,7 +39,9 @@ app.use(session({
 
 // 03. Conectar las capas
 // El service crea internamente el repository usando este mismo pool.
-const servicios = crearNicolettService(pool);
+const webpay = crearWebpayPrueba(pool);
+const servicios = crearNicolettService(pool, { webpay });
+webpay.conectarReservas(servicios.reservas);
 
 const controllers = crearNicolettController(servicios, {
   nombreCookieSesion: 'nicolett.sid',
@@ -48,6 +51,7 @@ const controllers = crearNicolettController(servicios, {
 const routes = crearNicolettRoutes(controllers);
 
 // 04. Rutas del backend
+app.use('/api/pagos/webpay', webpay.crearRouter(servicios));
 app.use('/api', routes);
 
 // 05. Servir la carpeta frontend existente
