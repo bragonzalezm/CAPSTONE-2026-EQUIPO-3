@@ -26,6 +26,13 @@ function crearGoogleCalendarService(repository) {
     return Number(error.response?.status ?? error.code);
   }
 
+  async function permiteEditar(calendarId) {
+    const { data } = await obtenerCliente().events.list({
+      calendarId, maxResults: 1, fields: 'accessRole'
+    }, { timeout: 10000, retry: false });
+    return ['owner', 'writer', 'writerWithoutPrivateAccess'].includes(data.accessRole);
+  }
+
   async function sincronizar(idReserva) {
     let rutReserva, fechaReserva;
     const resultado = await repository.conTransaccion(async tx => {
@@ -194,7 +201,7 @@ function crearGoogleCalendarService(repository) {
     });
   }
 
-  return { sincronizar, sincronizarDisponibilidad };
+  return { permiteEditar, sincronizar, sincronizarDisponibilidad };
 }
 
 module.exports = crearGoogleCalendarService;

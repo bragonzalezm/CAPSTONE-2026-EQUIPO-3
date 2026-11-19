@@ -12,6 +12,12 @@ function crearUsuarioController(dependencias) {
       await servicios.usuarios.listar(contexto(req), {
         ...paginacion(req), busqueda: queryTexto(req, 'busqueda', { defecto: '' })
       }))),
+    verConfiguracion: accion(async (req, res) => responder(res,
+      await servicios.usuarios.verConfiguracion(contexto(req), parametro(req, 'rut')))),
+    guardarCalendario: accion(async (req, res) => responder(res,
+      await servicios.usuarios.guardarCalendario(
+        contexto(req), parametro(req, 'rut'), cuerpo(req).id_calendario_google
+      ))),
     // Params: rut. Ficha con precauciones, solo personal autorizado.
     verFicha: accion(async (req, res) => responder(res,
       await servicios.usuarios.verFicha(contexto(req), parametro(req, 'rut')))),

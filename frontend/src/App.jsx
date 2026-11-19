@@ -6,11 +6,15 @@ import Booking from './pages/Booking.jsx';
 import Login from './pages/Login.jsx';
 import Agenda from './pages/Agenda.jsx';
 import Horarios from './pages/Horarios.jsx';
+import Administracion from './pages/Administracion.jsx';
 export default function App(){
   const [initialSlot,setInitialSlot]=useState(null);
   const [page,setPage]=useState('inicio'),[selection,setSelection]=useState(null),[manual,setManual]=useState(false);
   const [session,setSession]=useState(null),[checking,setChecking]=useState(true),[error,setError]=useState(''),[leaving,setLeaving]=useState(false);
-  useEffect(()=>{let active=true;api('/usuarios/mi-perfil').then(usuario=>active&&setSession({usuario,roles:null})).catch(e=>{if(active&&e.status!==401)setError(e.message);}).finally(()=>active&&setChecking(false));return()=>{active=false;};},[]);
+  const [rutRegistrado, setRutRegistrado] = useState('');
+  const administrador = session?.roles?.some(rol => rol.nombre.toUpperCase() === 'ADMINISTRADOR');
+  const personal = administrador || session?.roles?.some(rol => rol.nombre.toUpperCase() === 'ESPECIALISTA');
+  useEffect(()=>{let active=true;api('/usuarios/mi-perfil').then(({roles=[],...usuario})=>active&&setSession({usuario,roles})).catch(e=>{if(active&&e.status!==401)setError(e.message);}).finally(()=>active&&setChecking(false));return()=>{active=false;};},[]);
   const expired=useCallback(()=>{setSession(null);setPage('login');setError('Tu sesión terminó. Vuelve a ingresar.');},[]);
   useEffect(()=>{
     function navigate(){const hash=location.hash;if(['#inicio','#servicios','#contacto'].includes(hash)){setPage('inicio');setSelection(null);requestAnimationFrame(()=>requestAnimationFrame(()=>{if(hash==='#inicio')window.scrollTo({top:0});else document.getElementById(hash.slice(1))?.scrollIntoView({behavior:'smooth'});}));}}
@@ -20,7 +24,36 @@ export default function App(){
   function book(s,isManual=false,slot=null){setInitialSlot(slot);setError('');setSelection(s);setManual(isManual);setPage('reserva');}
   function homeClick(event){const hash=event.currentTarget.hash;if(hash===location.hash){setPage('inicio');setSelection(null);setTimeout(()=>{if(hash==='#inicio')window.scrollTo({top:0});else document.getElementById(hash.slice(1))?.scrollIntoView();},0);}}
   function loginDone(s){setSession(s);setError('');const staff=s.roles.some(r=>['ADMINISTRADOR','ESPECIALISTA'].includes(r.nombre.toUpperCase()));setPage(staff?'agenda':'inicio');}
-  function openAccount(){setError('');if(session?.roles?.some(r=>['ADMINISTRADOR','ESPECIALISTA'].includes(r.nombre.toUpperCase())))setPage('agenda');else setPage('login');}
+  function abrir(pagina) { setError(''); setRutRegistrado(''); setPage(pagina); }
+  function cuentaCreada(rut) { setRutRegistrado(rut); setPage('login'); }
   async function logout(){setLeaving(true);try{await api('/auth/logout',{method:'POST'});setSession(null);setPage('inicio');setSelection(null);setError('');}catch(e){setError(e.message);}finally{setLeaving(false);}}
-  return <><header className="site-header"><div onClick={e=>{if(e.target.closest('a')){setPage('inicio');setSelection(null);}}}><Brand/></div><nav aria-label="Navegación principal"><a href="#inicio" onClick={homeClick}>Inicio</a><a href="#servicios" onClick={homeClick}>Agenda tu hora</a><a href="#contacto" onClick={homeClick}>Contacto</a><button className="nav-link" disabled={checking} onClick={openAccount}>{session?.roles?.some(r=>['ADMINISTRADOR','ESPECIALISTA'].includes(r.nombre.toUpperCase()))?'Mi agenda':'Ingresar al panel'}</button>{session&&<button className="nav-link" disabled={leaving} onClick={logout}>{leaving?'Saliendo…':'Salir'}</button>}</nav><span className="header-detail">BELLEZA & BIENESTAR</span></header><main><Alert error>{error}</Alert>{checking?<p className="empty" role="status">Preparando tu visita…</p>:page==='inicio'?<Home onBook={book}/>:page==='reserva'&&selection?<Booking initialSlot={initialSlot} key={`${selection.id_especialidad}-${manual}`} specialty={selection} session={session} manual={manual} onExit={()=>setPage(manual?'agenda':'inicio')} onSaved={()=>setPage('agenda')}/>:page==='horarios'&&session?<Horarios session={session} onBack={()=>setPage('agenda')} onExpired={expired}/>:page==='agenda'&&session?<Agenda onHorarios={()=>setPage('horarios')} session={session} onManual={(s,slot)=>book(s,true,slot)} onExpired={expired}/>:<Login onLogin={loginDone}/>}</main><Footer onHome={()=>{setPage('inicio');setSelection(null);window.scrollTo({top:0});}}/></>;
+  return <>
+    <header className="site-header">
+      <div onClick={e=>{if(e.target.closest('a')){setPage('inicio');setSelection(null);}}}><Brand/></div>
+      <nav aria-label="Navegación principal">
+        <a href="#inicio" onClick={homeClick}>Inicio</a>
+        <a href="#servicios" onClick={homeClick}>Agenda tu hora</a>
+        <a href="#contacto" onClick={homeClick}>Contacto</a>
+        <button className="nav-link" disabled={checking} onClick={()=>abrir(personal?'agenda':'login')}>
+          {personal?'Mi agenda':'Ingresar al panel'}
+        </button>
+        {!checking&&!session&&<button className="nav-link" onClick={()=>abrir('registro')}>Registrarse</button>}
+        {administrador&&<button className="nav-link" onClick={()=>abrir('administracion')}>Administración</button>}
+        {session&&<button className="nav-link" disabled={leaving} onClick={logout}>{leaving?'Saliendo…':'Salir'}</button>}
+      </nav>
+      <span className="header-detail">BELLEZA & BIENESTAR</span>
+    </header>
+    <main>
+      <Alert error>{error}</Alert>
+      {checking?<p className="empty" role="status">Preparando tu visita…</p>
+        :page==='inicio'?<Home onBook={book}/>
+        :page==='reserva'&&selection?<Booking initialSlot={initialSlot} key={`${selection.id_especialidad}-${manual}`}
+          specialty={selection} session={session} manual={manual} onExit={()=>setPage(manual?'agenda':'inicio')} onSaved={()=>setPage('agenda')}/>
+        :page==='horarios'&&session?<Horarios session={session} onBack={()=>setPage('agenda')} onExpired={expired}/>
+        :page==='agenda'&&session?<Agenda onHorarios={()=>setPage('horarios')} session={session} onManual={(s,slot)=>book(s,true,slot)} onExpired={expired}/>
+        :page==='administracion'&&administrador?<Administracion onExpired={expired}/>
+        :<Login key={page} registro={page==='registro'} rutRegistrado={rutRegistrado} onRegistered={cuentaCreada} onLogin={loginDone}/>}
+    </main>
+    <Footer onHome={()=>{setPage('inicio');setSelection(null);window.scrollTo({top:0});}}/>
+  </>;
 }

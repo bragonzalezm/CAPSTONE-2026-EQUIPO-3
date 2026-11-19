@@ -1,16 +1,25 @@
 'use strict';
 
 function crearReservaRepository(dependencias) {
-  const { bloquearEspecialista, bloquearReserva, errorRepositorio, insertarReserva, paginacion, seleccionReserva, uno, varios } = dependencias;
+  const { bloquearEspecialista, bloquearReserva, errorRepositorio, exigirTransaccion,
+    insertarReserva, paginacion, seleccionReserva, uno, varios } = dependencias;
   const reservas = {
     bloquearEspecialista,
     bloquearPorId: bloquearReserva,
     buscarCalendarioGoogle(rut) {
-      return uno(`
-        SELECT id_calendario_google
-        FROM especialista_calendario
-        WHERE rut_especialista = $1
-      `, [rut]);
+      return uno('SELECT id_calendario_google FROM especialista_calendario WHERE rut_especialista=$1',[rut]);
+    },
+    guardarCalendarioGoogle(rut, calendarId) {
+      exigirTransaccion();
+      return uno(`INSERT INTO especialista_calendario (rut_especialista, id_calendario_google)
+        VALUES ($1, $2)
+        ON CONFLICT (rut_especialista) DO UPDATE
+        SET id_calendario_google = EXCLUDED.id_calendario_google
+        RETURNING id_calendario_google`, [rut, calendarId]);
+    },
+    buscarReservaConEventoGoogle(rut) {
+      return uno(`SELECT id_reserva FROM reserva
+        WHERE rut_especialista = $1 AND id_evento_google IS NOT NULL LIMIT 1`, [rut]);
     },
     buscarPorId(id) { return uno(`${seleccionReserva} WHERE r.id_reserva=$1`, [id]); },
     listarAgenda({ desde, hasta, rutEspecialista = null, idEstado = null }) {

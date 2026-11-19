@@ -6,6 +6,8 @@ function crearUsuarioRoutes(c) {
   router.get('/mi-perfil', c.usuarios.verMiPerfil);
   router.put('/mi-perfil', c.usuarios.actualizarMiPerfil);
   router.get('/', c.usuarios.listar); // Admin. Query: busqueda, limite, desplazamiento.
+  router.get('/:rut/configuracion', c.usuarios.verConfiguracion);
+  router.put('/:rut/calendario', c.usuarios.guardarCalendario);
   router.get('/:rut', c.usuarios.verFicha); // Personal autorizado.
   router.put('/:rut', c.usuarios.actualizarDatos); // Admin.
   router.patch('/:rut/precauciones', c.usuarios.actualizarPrecauciones);

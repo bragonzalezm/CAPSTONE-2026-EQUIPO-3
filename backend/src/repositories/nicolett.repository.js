@@ -161,7 +161,8 @@ function construirRepositorios(db, pool, contexto) {
     if (!fila) throw errorRepositorio('CATALOGO_INCOMPLETO', 'Falta origen o estado de reserva.');
     return fila;
   }
-  const reservas = crearReservaRepository({ bloquearEspecialista, bloquearReserva, errorRepositorio, insertarReserva, paginacion, seleccionReserva, uno, varios });
+  const reservas = crearReservaRepository({ bloquearEspecialista, bloquearReserva, errorRepositorio,
+    exigirTransaccion, insertarReserva, paginacion, seleccionReserva, uno, varios });
 
   // ========================================================================
   // 09. PAGOS RECIBIDOS -> pago.repository.js

@@ -257,7 +257,10 @@ function crearNicolettService(pool, opciones = {}) {
   // ========================================================================
   // 05. USUARIOS, ROLES Y FICHAS -> usuario.service.js / rol.service.js
   // ========================================================================
-  const usuarios = crearUsuarioService({ actor, administrador, contacto, pagina, personal, repository, requerido, rutValido, texto });
+  const usuarios = crearUsuarioService({
+    actor, administrador, contacto, especialistaHabilitada, fallar,
+    pagina, personal, repository, requerido, rutValido, texto
+  });
   const roles = crearRolService({ administrador, catalogoPorId, catalogoPorNombre, fallar, id, igual, mayus, repository, requerido, rutValido });
 
   // ========================================================================

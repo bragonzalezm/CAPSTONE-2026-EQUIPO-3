@@ -13,8 +13,13 @@ export const hour = iso => new Intl.DateTimeFormat('es-CL', { timeZone:ZONE, hou
 export const dateTime = iso => new Intl.DateTimeFormat('es-CL', { timeZone:ZONE, day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hourCycle:'h23' }).format(new Date(iso));
 export const money = value => new Intl.NumberFormat('es-CL', {style:'currency',currency:'CLP',maximumFractionDigits:0}).format(value);
 export function normalizeRut(value) { return value.replace(/\./g,'').replace(/\s/g,'').toUpperCase(); }
+export function formatRut(value) {
+  const normalized = value.toUpperCase().replace(/[^0-9K]/g, '');
+  if (normalized.length < 2) return normalized;
+  return `${normalized.slice(0, -1)}-${normalized.at(-1)}`;
+}
 export function validRut(value) {
-  const v=normalizeRut(value); if(!/^\d{7,8}-[\dK]$/.test(v)) return false;
+  const v=normalizeRut(value); if(!/^[1-9]\d{0,7}-[\dK]$/.test(v)) return false;
   const [num,dv]=v.split('-'); let sum=0,factor=2;
   for(const char of [...num].reverse()){sum+=Number(char)*factor;factor=factor===7?2:factor+1;}
   const r=11-sum%11; return dv===(r===11?'0':r===10?'K':String(r));
