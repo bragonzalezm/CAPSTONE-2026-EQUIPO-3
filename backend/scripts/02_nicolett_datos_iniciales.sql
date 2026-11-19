@@ -1,3 +1,11 @@
+-- Nicolett | Datos iniciales
+-- Ejecutar después de 01_nicolett_estructura.sql.
+-- Carga las especialidades y los catálogos que utiliza el backend.
+
+BEGIN;
+
+SET LOCAL search_path TO public;
+
 INSERT INTO especialidad (nombre, activa) VALUES
   ('Podología', true),
   ('Peluquería', true),
@@ -8,20 +16,17 @@ INSERT INTO especialidad (nombre, activa) VALUES
   ('Cejas', true)
 ON CONFLICT (nombre) DO NOTHING;
 
--- 01. Roles
 INSERT INTO rol (id_rol, nombre) VALUES
   (1, 'ADMINISTRADOR'),
   (2, 'ESPECIALISTA'),
   (3, 'CLIENTE')
 ON CONFLICT (nombre) DO NOTHING;
 
--- 02. Tipos de precio del catálogo
 INSERT INTO tipo_precio (id_tipo_precio, nombre) VALUES
   (1, 'FIJO'),
   (2, 'DESDE')
 ON CONFLICT (nombre) DO NOTHING;
 
--- 03. Días: lunes=1, domingo=7
 INSERT INTO dia_semana (id_dia, nombre) VALUES
   (1, 'Lunes'),
   (2, 'Martes'),
@@ -32,15 +37,11 @@ INSERT INTO dia_semana (id_dia, nombre) VALUES
   (7, 'Domingo')
 ON CONFLICT (nombre) DO NOTHING;
 
--- 04. Origen: el backend utiliza exactamente WEB y PERSONAL.
 INSERT INTO origen_reserva (id_origen, nombre) VALUES
   (1, 'WEB'),
   (2, 'PERSONAL')
 ON CONFLICT (nombre) DO NOTHING;
 
--- 05. Estados utilizados por los servicios
--- PENDIENTE permite retener temporalmente una hora mientras se procesa el pago.
--- No significa que se haya registrado un pago rechazado en la tabla pago.
 INSERT INTO estado_reserva (id_estado, nombre) VALUES
   (1, 'PENDIENTE'),
   (2, 'CONFIRMADA'),
@@ -48,9 +49,6 @@ INSERT INTO estado_reserva (id_estado, nombre) VALUES
   (4, 'REALIZADA')
 ON CONFLICT (nombre) DO NOTHING;
 
--- 06. Medios de pago
--- WEBPAY debe tener ID 1 por el CHECK de la tabla pago.
--- Sin abono = sin fila en pago; no se agrega EXENTO ni monto cero.
 INSERT INTO medio_pago (id_medio, nombre) VALUES
   (1, 'WEBPAY'),
   (2, 'EFECTIVO'),
@@ -69,5 +67,3 @@ END;
 $$;
 
 COMMIT;
-
-
