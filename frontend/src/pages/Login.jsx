@@ -47,7 +47,7 @@ export default function Login({ onLogin, onRegistered, registro = false, rutRegi
           <label>RUT
             <input name="rut" required autoComplete="username" autoCapitalize="characters"
               spellCheck={false} value={rut} onChange={e => setRut(formatRut(e.target.value))}
-              placeholder="12345679-3" />
+              placeholder="12345678-9" />
           </label>
           {registro && <>
             <label>Nombres
